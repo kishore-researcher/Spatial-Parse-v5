@@ -1,0 +1,6 @@
+/rust-core/target/
+/go-orchestrator/orchestrator
+/go-orchestrator/quarantine_store.json*
+/go-orchestrator/data/
+*.pdf
+!testdata/*.pdf

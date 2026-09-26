@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RAG Ingestion Pipeline — Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
+    --text: #e6e8ee; --muted: #8b90a0; --accent: #5b8cff; --accent2: #3fd1a5;
+    --warn: #ffb648; --danger: #ff6161; --mono: 'SFMono-Regular', Consolas, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; position: sticky; top: 0; background: var(--bg); z-index: 10; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .cfg { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  input, textarea, select, button { font-family: inherit; font-size: 14px; }
+  input[type=text], input[type=password], textarea, select {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px;
+  }
+  header input[type=text], header input[type=password] { width: 150px; }
+  button { background: var(--accent); color: white; border: none; border-radius: 6px; padding: 9px 14px; cursor: pointer; font-weight: 600; }
+  button:hover { filter: brightness(1.1); }
+  button.secondary { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+  button.danger { background: var(--danger); }
+  button.small { padding: 5px 10px; font-size: 12px; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  nav { display: flex; gap: 4px; padding: 10px 16px; border-bottom: 1px solid var(--border); overflow-x: auto; }
+  nav button.tab { background: transparent; color: var(--muted); border-radius: 6px 6px 0 0; padding: 8px 14px; white-space: nowrap; }
+  nav button.tab.active { background: var(--panel); color: var(--text); }
+  main { padding: 16px; max-width: 1100px; margin: 0 auto; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .card h2 { font-size: 14px; margin: 0 0 12px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .grow { flex: 1; min-width: 160px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin-top: 12px; }
+  .stat { background: var(--panel2); border-radius: 8px; padding: 10px; text-align: center; }
+  .stat .n { font-size: 20px; font-weight: 700; }
+  .stat .l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  #logOutput { background: #0a0c10; border: 1px solid var(--border); border-radius: 8px; padding: 10px; height: 240px; overflow-y: auto; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-all; margin-top: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover { background: var(--panel2); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 100px; font-size: 11px; font-weight: 600; }
+  .badge.clean { background: rgba(63,209,165,0.15); color: var(--accent2); }
+  .badge.needs_review { background: rgba(255,182,72,0.15); color: var(--warn); }
+  .badge.pending { background: rgba(255,182,72,0.15); color: var(--warn); }
+  .badge.approved { background: rgba(63,209,165,0.15); color: var(--accent2); }
+  .badge.rejected { background: rgba(255,97,97,0.15); color: var(--danger); }
+  .chunk { background: var(--panel2); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
+  .chunk .hier { font-size: 11px; color: var(--accent); margin-bottom: 6px; }
+  .chunk .text { font-size: 13px; white-space: pre-wrap; }
+  .chunk .meta { font-size: 11px; color: var(--muted); margin-top: 6px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .dropzone { border: 2px dashed var(--border); border-radius: 8px; padding: 24px; text-align: center; color: var(--muted); cursor: pointer; }
+  .dropzone.drag { border-color: var(--accent); color: var(--text); }
+  .split { display: grid; grid-template-columns: 1fr; gap: 16px; }
+  @media (min-width: 800px) { .split.two { grid-template-columns: 1fr 1fr; } }
+  textarea.mdedit { width: 100%; min-height: 180px; font-family: var(--mono); font-size: 12px; }
+  .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--panel2); border: 1px solid var(--border); padding: 10px 16px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity 0.2s; pointer-events: none; z-index: 100; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>&#128196; RAG Ingestion Pipeline</h1>
+  <div class="cfg">
+    <input type="text" id="apiKeyInput" placeholder="X-API-Key" title="Tenant API key">
+    <button class="secondary small" onclick="saveConfig()">Save</button>
+    <span id="daemonStatus" class="hint"></span>
+  </div>
+</header>
+
+<nav>
+  <button class="tab active" data-tab="upload" onclick="showTab('upload')">Upload &amp; Monitor</button>
+  <button class="tab" data-tab="documents" onclick="showTab('documents')">Documents</button>
+  <button class="tab" data-tab="quarantine" onclick="showTab('quarantine')">Quarantine</button>
+  <button class="tab" data-tab="export" onclick="showTab('export')">Export</button>
+</nav>
+
+<main>
+
+  <!-- ===================== UPLOAD & MONITOR ===================== -->
+  <section class="panel active" id="panel-upload">
+    <div class="card">
+      <h2>Upload a PDF</h2>
+      <div class="dropzone" id="dropzone" onclick="document.getElementById('fileInput').click()">
+        <div id="dropzoneLabel">Tap to choose a PDF, or drag one here</div>
+        <input type="file" id="fileInput" accept="application/pdf" style="display:none">
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <input type="text" id="docIdInput" class="grow" placeholder="document_id (optional)">
+        <button id="uploadBtn" onclick="uploadFile()">Ingest</button>
+      </div>
+      <div class="stats" id="ingestStats">
+        <div class="stat"><div class="n" id="statPages">–</div><div class="l">Pages Scored</div></div>
+        <div class="stat"><div class="n" id="statClusters">–</div><div class="l">Redact Clusters</div></div>
+        <div class="stat"><div class="n" id="statTokens">–</div><div class="l">Tokens</div></div>
+        <div class="stat"><div class="n" id="statQuarantined">–</div><div class="l">Quarantined</div></div>
+      </div>
+      <div id="logOutput"></div>
+    </div>
+  </section>
+
+  <!-- ===================== DOCUMENTS ===================== -->
+  <section class="panel" id="panel-documents">
+    <div class="split two">
+      <div class="card">
+        <h2>Ingested Documents</h2>
+        <button class="secondary small" onclick="refreshDocuments()">Refresh</button>
+        <div style="overflow-x:auto; margin-top:10px;">
+          <table id="documentsTable">
+            <thead><tr><th>Document</th><th>Pages</th><th>Chunks</th><th>Status</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2 id="chunksHeading">Chunks</h2>
+        <div class="row" id="chunksActions" style="display:none; margin-bottom:10px;">
+          <button class="secondary small" onclick="downloadMarkdown()">Download .md</button>
+        </div>
+        <div id="chunksList"><div class="hint">Select a document to view its chunks.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== QUARANTINE ===================== -->
+  <section class="panel" id="panel-quarantine">
+    <div class="split two">
+      <div class="card">
+        <h2>Flagged Pages</h2>
+        <div class="row" style="margin-bottom:10px;">
+          <select id="quarantineStatusFilter" onchange="refreshQuarantine()">
+            <option value="pending">Pending</option>
+            <option value="all">All</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <button class="secondary small" onclick="refreshQuarantine()">Refresh</button>
+        </div>
+        <div style="overflow-x:auto;">
+          <table id="quarantineTable">
+            <thead><tr><th>Doc / Page</th><th>Score</th><th>Status</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card" id="quarantineDetailCard">
+        <h2>Review</h2>
+        <div id="quarantineDetail"><div class="hint">Select a flagged page to review it.</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== EXPORT ===================== -->
+  <section class="panel" id="panel-export">
+    <div class="card">
+      <h2>Export to a Vector Database</h2>
+      <div class="row">
+        <select id="exportTarget" class="grow" onchange="renderExportFields()">
+          <option value="pgvector">pgvector (Postgres)</option>
+          <option value="qdrant">Qdrant</option>
+          <option value="pinecone">Pinecone</option>
+        </select>
+        <input type="text" id="exportDocId" class="grow" placeholder="document_id">
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <label class="hint"><input type="checkbox" id="exportIncludeApproved"> Include approved quarantine pages for this document</label>
+      </div>
+
+      <div id="exportFields" style="margin-top:14px;"></div>
+
+      <h2 style="margin-top:18px;">Embedder (optional — omit for metadata-only export)</h2>
+      <div class="row">
+        <input type="text" id="embedderUrl" class="grow" placeholder="Embedder URL (OpenAI-compatible /v1/embeddings)">
+        <input type="text" id="embedderKey" placeholder="Embedder API key">
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <input type="text" id="embedderModel" placeholder="Model (optional)">
+        <input type="text" id="embedderDims" placeholder="Dimensions (e.g. 1536)" style="width:160px;">
+      </div>
+
+      <div class="row" style="margin-top:14px;">
+        <button onclick="triggerExport()">Export</button>
+      </div>
+      <div id="exportResult" class="hint" style="margin-top:10px;"></div>
+    </div>
+  </section>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------- config ----------
+function baseUrl() { return window.location.origin; }
+function getApiKey() { return localStorage.getItem('rag_api_key') || ''; }
+function saveConfig() {
+  localStorage.setItem('rag_api_key', document.getElementById('apiKeyInput').value.trim());
+  toast('Saved.');
+  checkHealth();
+}
+function authHeaders(extra) {
+  const h = Object.assign({'X-API-Key': getApiKey()}, extra || {});
+  return h;
+}
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2200);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('apiKeyInput').value = getApiKey();
+  checkHealth();
+  renderExportFields();
+  setupDropzone();
+});
+
+async function checkHealth() {
+  try {
+    const resp = await fetch(baseUrl() + '/health');
+    const data = await resp.json();
+    document.getElementById('daemonStatus').textContent = data.daemon || '';
+  } catch (e) {
+    document.getElementById('daemonStatus').textContent = 'unreachable';
+  }
+}
+
+// ---------- tabs ----------
+function showTab(name) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('nav .tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+  document.querySelector('nav .tab[data-tab="' + name + '"]').classList.add('active');
+  if (name === 'documents') refreshDocuments();
+  if (name === 'quarantine') refreshQuarantine();
+}
+
+// ---------- upload & monitor ----------
+function setupDropzone() {
+  const dz = document.getElementById('dropzone');
+  const input = document.getElementById('fileInput');
+  input.addEventListener('change', () => {
+    if (input.files.length) document.getElementById('dropzoneLabel').textContent = input.files[0].name;
+  });
+  ['dragenter', 'dragover'].forEach(evt => dz.addEventListener(evt, e => { e.preventDefault(); dz.classList.add('drag'); }));
+  ['dragleave', 'drop'].forEach(evt => dz.addEventListener(evt, e => { e.preventDefault(); dz.classList.remove('drag'); }));
+  dz.addEventListener('drop', e => {
+    if (e.dataTransfer.files.length) {
+      input.files = e.dataTransfer.files;
+      document.getElementById('dropzoneLabel').textContent = e.dataTransfer.files[0].name;
+    }
+  });
+}
+
+let ingestCounters = {};
+function resetIngestStats() {
+  ingestCounters = { pages: 0, clusters: 0, tokens: 0, quarantined: 0 };
+  document.getElementById('statPages').textContent = '0';
+  document.getElementById('statClusters').textContent = '0';
+  document.getElementById('statTokens').textContent = '0';
+  document.getElementById('statQuarantined').textContent = '0';
+}
+function updateIngestStats() {
+  document.getElementById('statPages').textContent = ingestCounters.pages;
+  document.getElementById('statClusters').textContent = ingestCounters.clusters;
+  document.getElementById('statTokens').textContent = ingestCounters.tokens;
+  document.getElementById('statQuarantined').textContent = ingestCounters.quarantined;
+}
+function appendLog(line) {
+  const el = document.getElementById('logOutput');
+  el.textContent += line + '\n';
+  el.scrollTop = el.scrollHeight;
+}
+
+async function uploadFile() {
+  const fileInput = document.getElementById('fileInput');
+  if (!fileInput.files.length) { toast('Choose a PDF first.'); return; }
+  if (!getApiKey()) { toast('Set your X-API-Key above first.'); return; }
+
+  const docId = document.getElementById('docIdInput').value.trim() || fileInput.files[0].name.replace(/\.pdf$/i, '');
+  const btn = document.getElementById('uploadBtn');
+  btn.disabled = true;
+  document.getElementById('logOutput').textContent = '';
+  resetIngestStats();
+
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+  formData.append('document_id', docId);
+
+  try {
+    const resp = await fetch(baseUrl() + '/ingest', { method: 'POST', headers: authHeaders(), body: formData });
+    if (!resp.ok) {
+      appendLog('HTTP ' + resp.status + ': ' + await resp.text());
+      toast('Ingest failed.');
+      return;
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) { if (line.trim()) handleIngestLine(line); }
+    }
+    if (buf.trim()) handleIngestLine(buf);
+    toast('Ingest complete.');
+    refreshDocuments();
+  } catch (e) {
+    appendLog('Error: ' + e.message);
+    toast('Ingest failed.');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function handleIngestLine(line) {
+  appendLog(line);
+  let obj;
+  try { obj = JSON.parse(line); } catch (e) { return; }
+  if (obj.type === 'page_fidelity') {
+    ingestCounters.pages++;
+    if (obj.report && obj.report.quality === 'quarantined') ingestCounters.quarantined++;
+  } else if (obj.type === 'chunk') {
+    ingestCounters.tokens += (obj.payload && obj.payload.token_count) || 0;
+  } else if (obj.type === 'summary') {
+    ingestCounters.pages = obj.total_pages;
+    ingestCounters.clusters = obj.redact_clusters;
+    ingestCounters.quarantined = obj.pages_quarantined;
+  }
+  updateIngestStats();
+}
+
+// ---------- documents ----------
+let selectedDocumentId = null;
+
+async function refreshDocuments() {
+  if (!getApiKey()) return;
+  try {
+    const resp = await fetch(baseUrl() + '/api/v1/documents', { headers: authHeaders() });
+    const data = await resp.json();
+    const tbody = document.querySelector('#documentsTable tbody');
+    tbody.innerHTML = '';
+    (data.documents || []).forEach(doc => {
+      const tr = document.createElement('tr');
+      tr.className = 'clickable';
+      tr.onclick = () => loadChunks(doc.document_id);
+      tr.innerHTML = '<td>' + escapeHtml(doc.document_id) + '</td>' +
+        '<td>' + doc.total_pages + '</td>' +
+        '<td>' + doc.chunks_emitted + '</td>' +
+        '<td><span class="badge ' + doc.status + '">' + doc.status + '</span></td>';
+      tbody.appendChild(tr);
+    });
+  } catch (e) { toast('Failed to load documents.'); }
+}
+
+async function loadChunks(documentId) {
+  selectedDocumentId = documentId;
+  document.getElementById('chunksHeading').textContent = 'Chunks — ' + documentId;
+  document.getElementById('chunksActions').style.display = 'flex';
+  const container = document.getElementById('chunksList');
+  container.innerHTML = '<div class="hint">Loading…</div>';
+  try {
+    const resp = await fetch(baseUrl() + '/api/v1/documents/' + encodeURIComponent(documentId) + '/chunks', { headers: authHeaders() });
+    if (!resp.ok) { container.innerHTML = '<div class="hint">No chunks found.</div>'; return; }
+    const chunks = await resp.json();
+    container.innerHTML = '';
+    chunks.forEach(c => {
+      const payload = c.payload || c; // tolerate either a raw NDJSON record or a bare payload
+      const div = document.createElement('div');
+      div.className = 'chunk';
+      const hier = (payload.parent_hierarchy || []).join(' › ');
+      div.innerHTML =
+        (hier ? '<div class="hier">' + escapeHtml(hier) + '</div>' : '') +
+        '<div class="text">' + escapeHtml(payload.text || '') + '</div>' +
+        '<div class="meta">' + (payload.token_count || 0) + ' tokens · pages ' + ((payload.source_pages || []).join(', ')) + '</div>' +
+        '<div class="row" style="margin-top:6px;"><button class="secondary small" data-copy>Copy</button></div>';
+      div.querySelector('[data-copy]').onclick = () => copyText(payload.text || '');
+      container.appendChild(div);
+    });
+    if (!chunks.length) container.innerHTML = '<div class="hint">This document produced no chunks (every page may have been quarantined).</div>';
+  } catch (e) {
+    container.innerHTML = '<div class="hint">Failed to load chunks.</div>';
+  }
+}
+
+async function downloadMarkdown() {
+  if (!selectedDocumentId) { toast('Select a document first.'); return; }
+  try {
+    const resp = await fetch(baseUrl() + '/api/v1/documents/' + encodeURIComponent(selectedDocumentId) + '/markdown', { headers: authHeaders() });
+    const text = await resp.text();
+    const blob = new Blob([text], { type: 'text/markdown' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = selectedDocumentId + '.md';
+    a.click();
+  } catch (e) { toast('Download failed.'); }
+}
+
+function copyText(text) {
+  navigator.clipboard.writeText(text).then(() => toast('Copied.'), () => toast('Copy failed.'));
+}
+
+// ---------- quarantine ----------
+let selectedQuarantineId = null;
+
+async function refreshQuarantine() {
+  if (!getApiKey()) return;
+  const status = document.getElementById('quarantineStatusFilter').value;
+  try {
+    const resp = await fetch(baseUrl() + '/api/v1/quarantine?status=' + encodeURIComponent(status), { headers: authHeaders() });
+    const data = await resp.json();
+    const tbody = document.querySelector('#quarantineTable tbody');
+    tbody.innerHTML = '';
+    (data.records || []).forEach(rec => {
+      const tr = document.createElement('tr');
+      tr.className = 'clickable';
+      tr.onclick = () => loadQuarantineDetail(rec.id);
+      tr.innerHTML = '<td>' + escapeHtml(rec.document_id) + ' / p.' + rec.page_num + '</td>' +
+        '<td>' + rec.s_fidelity.toFixed(2) + '</td>' +
+        '<td><span class="badge ' + rec.status + '">' + rec.status + '</span></td>';
+      tbody.appendChild(tr);
+    });
+    if (!(data.records || []).length) tbody.innerHTML = '<tr><td colspan="3" class="hint">Nothing here.</td></tr>';
+  } catch (e) { toast('Failed to load quarantine list.'); }
+}
+
+async function loadQuarantineDetail(id) {
+  selectedQuarantineId = id;
+  const container = document.getElementById('quarantineDetail');
+  container.innerHTML = '<div class="hint">Loading…</div>';
+  try {
+    const resp = await fetch(baseUrl() + '/api/v1/quarantine/' + encodeURIComponent(id), { headers: authHeaders() });
+    const rec = await resp.json();
+    container.innerHTML =
+      '<div class="hint">' + escapeHtml(rec.document_id) + ' — page ' + rec.page_num + '</div>' +
+      '<div class="stats">' +
+        '<div class="stat"><div class="n">' + rec.s_fidelity.toFixed(2) + '</div><div class="l">S_fidelity</div></div>' +
+        '<div class="stat"><div class="n">' + rec.c_retention.toFixed(2) + '</div><div class="l">C_retention</div></div>' +
+        '<div class="stat"><div class="n">' + rec.t_matrix.toFixed(2) + '</div><div class="l">T_matrix</div></div>' +
+      '</div>' +
+      '<div class="hint" style="margin-top:10px;">Edit the extracted Markdown below before approving, or leave it as-is.</div>' +
+      '<textarea class="mdedit" id="quarantineEditText">' + escapeHtml(rec.reviewed_markdown || rec.markdown || '') + '</textarea>' +
+      '<div class="row" style="margin-top:10px;">' +
+        '<button onclick="reviewQuarantine(\'approve\')">Approve</button>' +
+        '<button class="danger" onclick="reviewQuarantine(\'reject\')">Reject</button>' +
+      '</div>';
+  } catch (e) {
+    container.innerHTML = '<div class="hint">Failed to load record.</div>';
+  }
+}
+
+async function reviewQuarantine(action) {
+  if (!selectedQuarantineId) return;
+  const text = document.getElementById('quarantineEditText').value;
+  try {
+    const resp = await fetch(baseUrl() + '/api/v1/quarantine/' + encodeURIComponent(selectedQuarantineId) + '/' + action, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ reviewed_markdown: text })
+    });
+    if (!resp.ok) { toast('Failed: ' + resp.status); return; }
+    toast(action === 'approve' ? 'Approved.' : 'Rejected.');
+    refreshQuarantine();
+    document.getElementById('quarantineDetail').innerHTML = '<div class="hint">Select a flagged page to review it.</div>';
+  } catch (e) { toast('Request failed.'); }
+}
+
+// ---------- export ----------
+function renderExportFields() {
+  const target = document.getElementById('exportTarget').value;
+  const container = document.getElementById('exportFields');
+  if (target === 'pgvector') {
+    container.innerHTML =
+      '<div class="row"><input type="text" id="pgDsn" class="grow" placeholder="postgres://user:pass@host/db?sslmode=disable"></div>' +
+      '<div class="row" style="margin-top:8px;"><input type="text" id="pgTable" class="grow" placeholder="table name (default rag_chunks)"></div>';
+  } else if (target === 'qdrant') {
+    container.innerHTML =
+      '<div class="row"><input type="text" id="qdrantUrl" class="grow" placeholder="http://localhost:6333"></div>' +
+      '<div class="row" style="margin-top:8px;"><input type="text" id="qdrantCollection" class="grow" placeholder="collection name"><input type="text" id="qdrantApiKey" placeholder="API key (optional)"></div>';
+  } else {
+    container.innerHTML =
+      '<div class="row"><input type="text" id="pineconeHost" class="grow" placeholder="index host (from Pinecone console)"></div>' +
+      '<div class="row" style="margin-top:8px;"><input type="text" id="pineconeApiKey" class="grow" placeholder="API key"><input type="text" id="pineconeNamespace" placeholder="namespace (optional)"></div>';
+  }
+}
+
+async function triggerExport() {
+  const target = document.getElementById('exportTarget').value;
+  const body = {
+    target: target,
+    document_id: document.getElementById('exportDocId').value.trim(),
+    include_approved_quarantine: document.getElementById('exportIncludeApproved').checked,
+    embedder_url: document.getElementById('embedderUrl').value.trim(),
+    embedder_key: document.getElementById('embedderKey').value.trim(),
+    embedder_model: document.getElementById('embedderModel').value.trim(),
+    embedder_dims: parseInt(document.getElementById('embedderDims').value, 10) || 0,
+  };
+  if (target === 'pgvector') {
+    body.pg_dsn = (document.getElementById('pgDsn') || {}).value || '';
+    body.pg_table = (document.getElementById('pgTable') || {}).value || '';
+  } else if (target === 'qdrant') {
+    body.qdrant_url = (document.getElementById('qdrantUrl') || {}).value || '';
+    body.qdrant_collection = (document.getElementById('qdrantCollection') || {}).value || '';
+    body.qdrant_api_key = (document.getElementById('qdrantApiKey') || {}).value || '';
+  } else {
+    body.pinecone_host = (document.getElementById('pineconeHost') || {}).value || '';
+    body.pinecone_api_key = (document.getElementById('pineconeApiKey') || {}).value || '';
+    body.pinecone_namespace = (document.getElementById('pineconeNamespace') || {}).value || '';
+  }
+
+  const resultEl = document.getElementById('exportResult');
+  resultEl.textContent = 'Exporting…';
+  try {
+    const resp = await fetch(baseUrl() + '/api/v1/export', {
+      method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify(body)
+    });
+    const data = await resp.json();
+    if (!resp.ok) { resultEl.textContent = 'Error: ' + (data.error || resp.status); return; }
+    resultEl.textContent = 'Exported ' + data.chunks_exported + ' chunk(s) to ' + data.target + ' via ' + data.embedder + '.';
+  } catch (e) {
+    resultEl.textContent = 'Request failed: ' + e.message;
+  }
+}
+
+// ---------- utils ----------
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+</script>
+</body>
+</html>
